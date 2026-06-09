@@ -93,6 +93,47 @@ def green_ratio(button_image: np.ndarray) -> float:
     return float(np.count_nonzero(mask[center_mask]) / np.count_nonzero(center_mask))
 
 
+def bite_change_ratio(
+    button_image: np.ndarray,
+    baseline_image: np.ndarray | None,
+) -> float:
+    """Measure newly-added bright green pixels relative to the idle button."""
+    if baseline_image is None or button_image.size == 0:
+        return 0.0
+    if baseline_image.shape != button_image.shape:
+        baseline_image = cv2.resize(
+            baseline_image,
+            (button_image.shape[1], button_image.shape[0]),
+        )
+
+    current = button_image.astype(np.int16)
+    baseline = baseline_image.astype(np.int16)
+    current_green = current[:, :, 1] - np.maximum(
+        current[:, :, 0],
+        current[:, :, 2],
+    )
+    baseline_green = baseline[:, :, 1] - np.maximum(
+        baseline[:, :, 0],
+        baseline[:, :, 2],
+    )
+    green_gain = current_green - baseline_green
+    brightness_gain = current[:, :, 1] - baseline[:, :, 1]
+
+    height, width = current_green.shape
+    yy, xx = np.ogrid[:height, :width]
+    radius = min(width, height) * 0.38
+    center_mask = (xx - width / 2) ** 2 + (yy - height / 2) ** 2 <= radius**2
+    changed = (
+        (green_gain >= cfg.BITE_GREEN_GAIN)
+        & (brightness_gain >= cfg.BITE_BRIGHTNESS_GAIN)
+        & center_mask
+    )
+    center_pixels = np.count_nonzero(center_mask)
+    if center_pixels == 0:
+        return 0.0
+    return float(np.count_nonzero(changed) / center_pixels)
+
+
 def locate_green_button(
     frame: np.ndarray,
     roi: tuple[float, float, float, float],
@@ -174,6 +215,172 @@ def image_similarity(image: np.ndarray, template: np.ndarray | None) -> float:
     return max(0.0, min(1.0, gray_score * 0.45 + edge_score * 0.55))
 
 
+def bait_foreground_mask(image: np.ndarray) -> np.ndarray:
+    """Extract the opaque warm-colored worm from the translucent bait slot."""
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    blue, green, red = cv2.split(image)
+    blue_i = blue.astype(np.int16)
+    green_i = green.astype(np.int16)
+    red_i = red.astype(np.int16)
+
+    warm = (
+        (hsv[:, :, 0] <= 28)
+        & (hsv[:, :, 1] >= 15)
+        & (hsv[:, :, 2] >= 115)
+        & (red_i >= blue_i + 10)
+        & (red_i >= green_i - 8)
+    )
+
+    height, width = warm.shape
+    yy, xx = np.ogrid[:height, :width]
+    icon_area = (
+        ((xx - width * 0.47) / max(1.0, width * 0.43)) ** 2
+        + ((yy - height * 0.48) / max(1.0, height * 0.44)) ** 2
+        <= 1.0
+    )
+    mask = np.where(warm & icon_area, 255, 0).astype(np.uint8)
+    return cv2.morphologyEx(
+        mask,
+        cv2.MORPH_OPEN,
+        np.ones((3, 3), dtype=np.uint8),
+    )
+
+
+def bait_foreground_similarity(
+    image: np.ndarray,
+    template: np.ndarray | None,
+) -> float:
+    """Compare worm shape while ignoring the transparent button background."""
+    if template is None or image.size == 0:
+        return 0.0
+    resized = cv2.resize(template, (image.shape[1], image.shape[0]))
+    image_mask = bait_foreground_mask(image)
+    template_mask = bait_foreground_mask(resized)
+    image_pixels = np.count_nonzero(image_mask)
+    template_pixels = np.count_nonzero(template_mask)
+    if image_pixels == 0 or template_pixels == 0:
+        return 0.0
+
+    kernel = np.ones((5, 5), dtype=np.uint8)
+    image_dilated = cv2.dilate(image_mask, kernel)
+    template_dilated = cv2.dilate(template_mask, kernel)
+    image_overlap = np.count_nonzero(
+        (image_mask > 0) & (template_dilated > 0)
+    ) / image_pixels
+    template_overlap = np.count_nonzero(
+        (template_mask > 0) & (image_dilated > 0)
+    ) / template_pixels
+    return float((image_overlap + template_overlap) / 2.0)
+
+
+def infinity_symbol_mask(image: np.ndarray) -> np.ndarray:
+    """Extract the bright infinity symbol from the bait icon's lower right."""
+    symbol = crop_local_ratio(image, cfg.EMPTY_BAIT_INFINITY_CROP)
+    hsv = cv2.cvtColor(symbol, cv2.COLOR_BGR2HSV)
+    mask = cv2.inRange(
+        hsv,
+        np.array((0, 0, 195), dtype=np.uint8),
+        np.array((179, 90, 255), dtype=np.uint8),
+    )
+    return mask
+
+
+def infinity_hole_geometry(mask: np.ndarray) -> tuple[float, float] | None:
+    """Return normalized spacing of the two loops inside an infinity symbol."""
+    contours, hierarchy = cv2.findContours(
+        mask,
+        cv2.RETR_CCOMP,
+        cv2.CHAIN_APPROX_SIMPLE,
+    )
+    if hierarchy is None:
+        return None
+
+    holes: list[tuple[float, float, float]] = []
+    for index, relation in enumerate(hierarchy[0]):
+        if relation[3] < 0:
+            continue
+        area = cv2.contourArea(contours[index])
+        if area < 3.0:
+            continue
+        moments = cv2.moments(contours[index])
+        if moments["m00"] == 0:
+            continue
+        holes.append(
+            (
+                area,
+                moments["m10"] / moments["m00"],
+                moments["m01"] / moments["m00"],
+            )
+        )
+    if len(holes) < 2:
+        return None
+
+    largest = sorted(holes, reverse=True)[:2]
+    width = max(1, mask.shape[1])
+    height = max(1, mask.shape[0])
+    return (
+        abs(largest[0][1] - largest[1][1]) / width,
+        abs(largest[0][2] - largest[1][2]) / height,
+    )
+
+
+def infinity_symbol_similarity(
+    image: np.ndarray,
+    template: np.ndarray | None,
+) -> float:
+    """Compare the fixed lower-right infinity symbol independent of scenery."""
+    if template is None or image.size == 0:
+        return 0.0
+    resized = cv2.resize(template, (image.shape[1], image.shape[0]))
+    image_mask = infinity_symbol_mask(image)
+    template_mask = infinity_symbol_mask(resized)
+    image_pixels = np.count_nonzero(image_mask)
+    template_pixels = np.count_nonzero(template_mask)
+    if image_pixels == 0 or template_pixels == 0:
+        return 0.0
+    image_geometry = infinity_hole_geometry(image_mask)
+    template_geometry = infinity_hole_geometry(template_mask)
+    if image_geometry is None or template_geometry is None:
+        return 0.0
+
+    horizontal_score = max(
+        0.0,
+        1.0 - abs(image_geometry[0] - template_geometry[0]) / 0.08,
+    )
+    vertical_score = max(
+        0.0,
+        1.0 - abs(image_geometry[1] - template_geometry[1]) / 0.08,
+    )
+    structure_score = horizontal_score * vertical_score
+
+    kernel = np.ones((3, 3), dtype=np.uint8)
+    image_dilated = cv2.dilate(image_mask, kernel)
+    template_dilated = cv2.dilate(template_mask, kernel)
+    image_overlap = np.count_nonzero(
+        (image_mask > 0) & (template_dilated > 0)
+    ) / image_pixels
+    template_overlap = np.count_nonzero(
+        (template_mask > 0) & (image_dilated > 0)
+    ) / template_pixels
+    overlap_score = (image_overlap + template_overlap) / 2.0
+    return float(overlap_score * structure_score)
+
+
+def classify_bait_scores(worm_score: float, infinity_score: float) -> str:
+    """Classify bait conservatively; mixed scores remain unknown."""
+    if (
+        worm_score >= cfg.EMPTY_BAIT_WORM_THRESHOLD
+        and infinity_score >= cfg.EMPTY_BAIT_INFINITY_THRESHOLD
+    ):
+        return "starter"
+    if (
+        worm_score <= cfg.LIMITED_BAIT_WORM_MAX
+        and infinity_score <= cfg.LIMITED_BAIT_INFINITY_MAX
+    ):
+        return "limited"
+    return "unknown"
+
+
 def locate_template(
     frame: np.ndarray,
     template: np.ndarray | None,
@@ -243,7 +450,7 @@ def annotate(
         f"state: {status}",
         f"green: {green:.3f} / {cfg.GREEN_PIXEL_RATIO:.3f}",
         f"cast: {cast_score:.3f} / {cfg.CAST_TEMPLATE_THRESHOLD:.3f}",
-        f"empty: {empty_score:.3f} / {cfg.EMPTY_BAIT_THRESHOLD:.3f}",
+        f"worm: {empty_score:.3f} / {cfg.EMPTY_BAIT_WORM_THRESHOLD:.3f}",
         "Q quit | P pause",
     )
     for index, line in enumerate(lines):

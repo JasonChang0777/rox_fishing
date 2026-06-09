@@ -16,6 +16,23 @@ WINDOW_TITLE_KEYWORDS = ("ROX", "RÖX")
 # broad lower-right area instead of clicking the center of a fixed ROI.
 LIFT_BUTTON_ROI = (0.42, 0.42, 1.00, 1.00)
 BAIT_ICON_ROI = (0.65, 0.84, 0.75, 0.99)
+BAIT_PANEL_SEARCH_ROI = (0.40, 0.65, 0.95, 1.00)
+BAIT_PANEL_TEMPLATE_SCALES = (
+    0.65,
+    0.75,
+    0.85,
+    0.95,
+    1.00,
+    1.10,
+    1.20,
+    1.30,
+    1.40,
+    1.50,
+    1.65,
+    1.80,
+)
+BAIT_PANEL_MATCH_THRESHOLD = 0.32
+BAIT_RELOCATE_UNKNOWN_FRAMES = 60
 
 EMPTY_BAIT_TEMPLATE = TEMPLATE_DIR / "empty_bait.png"
 
@@ -23,15 +40,27 @@ EMPTY_BAIT_TEMPLATE = TEMPLATE_DIR / "empty_bait.png"
 GREEN_HSV_LOWER = (20, 55, 80)
 GREEN_HSV_UPPER = (92, 255, 255)
 GREEN_PIXEL_RATIO = 0.075
-GREEN_REQUIRED_FRAMES = 1
+GREEN_REQUIRED_FRAMES = 2
 GREEN_BUTTON_SIZE_RATIO = 0.20
+# Compare the active lift button with the same area captured before casting.
+# This rejects scenery that was already green before the button changed.
+BITE_CHANGE_RATIO = 0.10
+BITE_GREEN_GAIN = 28
+BITE_BRIGHTNESS_GAIN = 12
 
-EMPTY_BAIT_THRESHOLD = 0.76
+EMPTY_BAIT_WORM_THRESHOLD = 0.52
+EMPTY_BAIT_INFINITY_THRESHOLD = 0.72
+# Limited bait must be clearly different from both starter-bait features.
+# Scores between these bands are unknown and must never trigger a cast.
+LIMITED_BAIT_WORM_MAX = 0.52
+LIMITED_BAIT_INFINITY_MAX = 0.55
 EMPTY_BAIT_REQUIRED_FRAMES = 5
 BAIT_PRESENT_REQUIRED_FRAMES = 5
 # The calibrated bait image contains the starter bait on the left and the
 # fishing rod on the right. Compare only the starter bait icon.
 EMPTY_BAIT_ICON_CROP = (0.00, 0.00, 0.56, 0.95)
+# The starter bait count is an infinity symbol at the icon's lower right.
+EMPTY_BAIT_INFINITY_CROP = (0.62, 0.62, 1.00, 0.96)
 
 POLL_INTERVAL_SECONDS = 0.010
 DIAGNOSTIC_INTERVAL_SECONDS = 1.0

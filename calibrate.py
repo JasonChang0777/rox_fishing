@@ -36,15 +36,16 @@ def main() -> None:
         frame = capture_window(hwnd, cfg.CAPTURE_MODE)
         height, width = frame.shape[:2]
         client_point = (
-            round(width * ratio[0]),
-            round(height * ratio[1]),
+            round(width * ratio.x_ratio),
+            round(height * ratio.y_ratio),
         )
         cfg.DEBUG_DIR.mkdir(exist_ok=True)
         cv2.circle(frame, client_point, 10, (0, 255, 255), -1)
         cv2.circle(frame, client_point, 18, (0, 0, 255), 3)
         cv2.imwrite(str(cfg.DEBUG_DIR / "cast_point.png"), frame)
         print(
-            f"已儲存拋竿位置比例：x={ratio[0]:.4f}, y={ratio[1]:.4f}"
+            f"已儲存拋竿位置比例：x={ratio.x_ratio:.4f}, "
+            f"y={ratio.y_ratio:.4f}"
         )
         print("請檢查 debug/cast_point.png，標記必須位於釣魚按鈕正中央。")
         return
