@@ -10,7 +10,6 @@ from vision import (
     bite_change_ratio,
     classify_bait_scores,
     crop_around,
-    crop_cast_template,
     crop_local_ratio,
     crop_ratio,
     green_ratio,
@@ -44,11 +43,6 @@ class VisionTests(unittest.TestCase):
         image = np.zeros((100, 200, 3), dtype=np.uint8)
         cropped = crop_local_ratio(image, (0.0, 0.0, 0.5, 0.8))
         self.assertEqual(cropped.shape, (80, 100, 3))
-
-    def test_crop_cast_template_removes_outer_background(self) -> None:
-        template = np.zeros((100, 200, 3), dtype=np.uint8)
-        cropped = crop_cast_template(template)
-        self.assertEqual(cropped.shape, (53, 100, 3))
 
     def test_gray_circle_does_not_cross_green_threshold(self) -> None:
         image = np.full((200, 200, 3), 150, dtype=np.uint8)
@@ -182,7 +176,8 @@ class VisionTests(unittest.TestCase):
         self.assertEqual(classify_bait_scores(0.10, 0.20), "limited")
         self.assertEqual(classify_bait_scores(0.417, 0.00), "limited")
         self.assertEqual(classify_bait_scores(0.00, 0.719), "unknown")
-        self.assertEqual(classify_bait_scores(0.60, 0.40), "unknown")
+        self.assertEqual(classify_bait_scores(0.60, 0.40), "limited")
+        self.assertEqual(classify_bait_scores(0.70, 0.40), "unknown")
 
     def test_locate_template_returns_dynamic_center(self) -> None:
         template = np.zeros((30, 40, 3), dtype=np.uint8)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import logging
 from logging.handlers import RotatingFileHandler
 import time
@@ -8,7 +9,6 @@ from enum import Enum, auto
 import cv2
 
 import config as cfg
-from cast_point import load_cast_point, resolve_cast_point
 from vision import (
     bait_foreground_similarity,
     bite_change_ratio,
@@ -21,11 +21,17 @@ from vision import (
     locate_template,
 )
 from window_capture import (
+    activate_window,
     capture_client_region,
     capture_window,
     click_client,
     find_window,
+    find_windows,
     get_client_bounds,
+    get_monitor_bounds,
+    is_key_down,
+    is_window_foreground,
+    ratio_point,
 )
 
 
@@ -38,6 +44,36 @@ class BotState(Enum):
     WAITING_FOR_BITE = auto()
     WAITING_FOR_RESULT = auto()
     OUT_OF_BAIT = auto()
+
+
+class StopRequested(Exception):
+    pass
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="ROX Fishing Bot")
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument(
+        "--window-index",
+        type=int,
+        help="使用 --list-windows 顯示的序號選擇 ROX 視窗",
+    )
+    selection.add_argument(
+        "--hwnd",
+        type=int,
+        help="使用 Windows 視窗 handle 選擇 ROX 視窗",
+    )
+    parser.add_argument(
+        "--list-windows",
+        action="store_true",
+        help="列出目前可見的 ROX 視窗後結束",
+    )
+    return parser.parse_args()
+
+
+def check_stop_key() -> None:
+    if is_key_down(cfg.STOP_VIRTUAL_KEY):
+        raise StopRequested
 
 
 def save_target(frame, region, name: str) -> None:
@@ -102,59 +138,75 @@ def region_ratio(frame, region) -> tuple[float, float, float, float]:
 
 
 def main() -> None:
+    args = parse_args()
     configure_logging()
     cfg.DEBUG_DIR.mkdir(exist_ok=True)
-    cast_ratio = load_cast_point()
+    if args.list_windows:
+        matches = find_windows(cfg.WINDOW_TITLE_KEYWORDS)
+        if not matches:
+            logger.info("No visible ROX windows found.")
+            return
+        logger.info("Visible ROX windows:")
+        for index, match in enumerate(matches, start=1):
+            bounds = get_client_bounds(match.hwnd)
+            status = (
+                "ready"
+                if bounds.width > 0 and bounds.height > 0
+                else "minimized"
+            )
+            logger.info(
+                "  [%s] hwnd=%s pid=%s size=%sx%s status=%s title=%s",
+                index,
+                match.hwnd,
+                match.process_id,
+                bounds.width,
+                bounds.height,
+                status,
+                match.title,
+            )
+        return
+
     empty_template = load_template(cfg.EMPTY_BAIT_TEMPLATE)
     if empty_template is None:
         raise RuntimeError(
-            "Missing empty_bait.png. Run: python calibrate.py empty"
+            f"Missing bundled bait template: {cfg.EMPTY_BAIT_TEMPLATE}"
         )
     empty_icon_template = crop_local_ratio(
         empty_template,
         cfg.EMPTY_BAIT_ICON_CROP,
     )
 
-    hwnd, title = find_window(cfg.WINDOW_TITLE_KEYWORDS)
+    hwnd, title = find_window(
+        cfg.WINDOW_TITLE_KEYWORDS,
+        hwnd=args.hwnd,
+        window_index=args.window_index,
+    )
+    activate_window(hwnd)
     logger.info("=== ROX Fishing Bot started ===")
     logger.info("Game window: %s (handle=%s)", title, hwnd)
     logger.info("Capture=%s, click=%s", cfg.CAPTURE_MODE, cfg.CLICK_MODE)
+    logger.info("Press %s to stop.", cfg.STOP_KEY_NAME)
     logger.info(
-        "Cast point ratio: x=%.4f, y=%.4f",
-        cast_ratio.x_ratio,
-        cast_ratio.y_ratio,
+        "Fixed cast point ratio: x=%.4f, y=%.4f",
+        cfg.CAST_BUTTON_POINT[0],
+        cfg.CAST_BUTTON_POINT[1],
     )
     initial_bounds = get_client_bounds(hwnd)
+    monitor_bounds = get_monitor_bounds(hwnd)
     logger.info(
-        "Client size: %sx%s",
+        "Client bounds: left=%s top=%s size=%sx%s",
+        initial_bounds.left,
+        initial_bounds.top,
         initial_bounds.width,
         initial_bounds.height,
     )
-    if cast_ratio.bottom_offset is None:
-        logger.warning(
-            "Legacy cast calibration detected. It still works, but run "
-            "'python calibrate.py point --delay 5' once to improve "
-            "portability across window heights."
-        )
-    else:
-        logger.info(
-            "Cast anchor: bottom=%spx, reference=%sx%s",
-            cast_ratio.bottom_offset,
-            cast_ratio.reference_width,
-            cast_ratio.reference_height,
-        )
-        if cast_ratio.reference_width and cast_ratio.reference_height:
-            old_aspect = (
-                cast_ratio.reference_width / cast_ratio.reference_height
-            )
-            new_aspect = initial_bounds.width / initial_bounds.height
-            if abs(new_aspect / old_aspect - 1.0) > 0.15:
-                logger.warning(
-                    "Window aspect ratio differs significantly from "
-                    "calibration (%.3f -> %.3f). Verify the first cast.",
-                    old_aspect,
-                    new_aspect,
-                )
+    logger.info(
+        "Monitor bounds: left=%s top=%s size=%sx%s",
+        monitor_bounds.left,
+        monitor_bounds.top,
+        monitor_bounds.width,
+        monitor_bounds.height,
+    )
     button_size = max(
         80,
         round(
@@ -198,13 +250,54 @@ def main() -> None:
     empty_hits = 0
     bait_present_hits = 0
     unknown_bait_hits = 0
+    capture_paused = False
 
     try:
         while True:
+            check_stop_key()
+            if (
+                cfg.CAPTURE_MODE == "screen"
+                and not is_window_foreground(hwnd)
+            ):
+                if not capture_paused:
+                    logger.warning(
+                        "ROX is not foreground; capture paused to avoid "
+                        "reading an overlapping window."
+                    )
+                    capture_paused = True
+                time.sleep(0.1)
+                continue
+            if capture_paused:
+                logger.info("ROX returned to foreground; capture resumed.")
+                capture_paused = False
+
             now = time.perf_counter()
-            cast_point = resolve_cast_point(hwnd, cast_ratio)
+            bounds = get_client_bounds(hwnd)
+            cast_point = ratio_point(
+                (bounds.width, bounds.height),
+                cfg.CAST_BUTTON_POINT,
+            )
 
             if state == BotState.WAITING_FOR_BITE:
+                if (
+                    bite_baseline is None
+                    and now - last_action >= cfg.BITE_BASELINE_DELAY_SECONDS
+                ):
+                    bite_baseline = capture_client_region(
+                        hwnd,
+                        cast_point,
+                        (button_size, button_size),
+                    )
+                    if cfg.SAVE_DEBUG_FRAMES:
+                        cv2.imwrite(
+                            str(cfg.DEBUG_DIR / "bite_baseline.png"),
+                            bite_baseline,
+                        )
+                    logger.info(
+                        "Bite baseline captured %.1fs after cast.",
+                        now - last_action,
+                    )
+
                 lift_image = capture_client_region(
                     hwnd,
                     cast_point,
@@ -226,9 +319,14 @@ def main() -> None:
                         )
 
                 if now - last_diagnostic >= cfg.DIAGNOSTIC_INTERVAL_SECONDS:
+                    if cfg.SAVE_DEBUG_FRAMES:
+                        cv2.imwrite(
+                            str(cfg.DEBUG_DIR / "bite_latest.png"),
+                            lift_image,
+                        )
                     logger.info(
                         "Detect: state=%s bite=%.3f green=%.3f "
-                        "baseline=%s button_center=%s",
+                        "baseline=%s button_center=%s debug=bite_latest.png",
                         state.name,
                         bite_change,
                         green,
@@ -289,23 +387,14 @@ def main() -> None:
                 continue
 
             if state == BotState.CASTING:
-                bite_baseline = capture_client_region(
-                    hwnd,
-                    cast_point,
-                    (button_size, button_size),
-                )
-                if cfg.SAVE_DEBUG_FRAMES:
-                    cv2.imwrite(
-                        str(cfg.DEBUG_DIR / "bite_baseline.png"),
-                        bite_baseline,
-                    )
+                bite_baseline = None
                 click_client(hwnd, cast_point, cfg.CLICK_MODE)
                 last_action = now
                 state = BotState.WAITING_FOR_BITE
                 green_hits = 0
                 green_peak = 0.0
                 logger.info(
-                    "Cast click: client=%s, pre-cast baseline captured",
+                    "Cast click: client=%s, waiting for button to settle",
                     cast_point,
                 )
                 logger.info(
@@ -408,7 +497,7 @@ def main() -> None:
                 break
 
             time.sleep(cfg.POLL_INTERVAL_SECONDS)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, StopRequested):
         logger.info("Stopped by user.")
     finally:
         cv2.destroyAllWindows()

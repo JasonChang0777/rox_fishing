@@ -3,8 +3,7 @@ from __future__ import annotations
 import argparse
 import time
 
-from cast_point import load_cast_point, resolve_cast_point
-from window_capture import click_client, find_window
+from window_capture import click_client, find_window, get_client_bounds, ratio_point
 import config as cfg
 
 
@@ -30,7 +29,11 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     hwnd, title = find_window(cfg.WINDOW_TITLE_KEYWORDS)
-    point = resolve_cast_point(hwnd, load_cast_point())
+    bounds = get_client_bounds(hwnd)
+    point = ratio_point(
+        (bounds.width, bounds.height),
+        cfg.CAST_BUTTON_POINT,
+    )
 
     print(f"Window: {title} (handle={hwnd})")
     print(f"Background click target: client={point}")

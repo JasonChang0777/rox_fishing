@@ -57,12 +57,19 @@ class ClientBounds:
     height: int
 
 
+@dataclass(frozen=True)
+class WindowInfo:
+    hwnd: int
+    title: str
+    process_id: int
+
+
 def _normalized_title(value: str) -> str:
     return value.casefold().replace("ö", "o")
 
 
-def find_window(title_keywords: tuple[str, ...]) -> tuple[int, str]:
-    matches: list[tuple[int, str]] = []
+def find_windows(title_keywords: tuple[str, ...]) -> list[WindowInfo]:
+    matches: list[WindowInfo] = []
     keywords = tuple(_normalized_title(item) for item in title_keywords)
 
     @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
@@ -77,13 +84,56 @@ def find_window(title_keywords: tuple[str, ...]) -> tuple[int, str]:
         title = buffer.value
         normalized = _normalized_title(title)
         if any(keyword in normalized for keyword in keywords):
-            matches.append((hwnd, title))
+            process_id = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(process_id))
+            matches.append(WindowInfo(hwnd, title, process_id.value))
         return True
 
     user32.EnumWindows(callback, 0)
+    return sorted(matches, key=lambda item: item.hwnd)
+
+
+def select_window(
+    matches: list[WindowInfo],
+    *,
+    hwnd: int | None = None,
+    window_index: int | None = None,
+) -> WindowInfo:
     if not matches:
-        raise RuntimeError("找不到 ROX 視窗，請先啟動遊戲並保持視窗可見。")
-    return min(matches, key=lambda item: len(item[1]))
+        raise RuntimeError(
+            "No ROX window found. Start the game and keep its window visible."
+        )
+    if hwnd is not None:
+        for match in matches:
+            if match.hwnd == hwnd:
+                return match
+        raise RuntimeError(f"ROX window handle {hwnd} was not found.")
+    if window_index is not None:
+        if not 1 <= window_index <= len(matches):
+            raise RuntimeError(
+                f"Window index must be between 1 and {len(matches)}."
+            )
+        return matches[window_index - 1]
+    if len(matches) > 1:
+        raise RuntimeError(
+            f"Found {len(matches)} ROX windows. Use --list-windows, then select "
+            "one with --window-index or --hwnd."
+        )
+    return matches[0]
+
+
+def find_window(
+    title_keywords: tuple[str, ...],
+    *,
+    hwnd: int | None = None,
+    window_index: int | None = None,
+) -> tuple[int, str]:
+    selected = select_window(
+        find_windows(title_keywords),
+        hwnd=hwnd,
+        window_index=window_index,
+    )
+    return selected.hwnd, selected.title
 
 
 def get_client_bounds(hwnd: int) -> ClientBounds:

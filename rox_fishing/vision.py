@@ -177,7 +177,6 @@ def locate_green_button(
 
     return best
 
-
 def load_template(path: Path) -> np.ndarray | None:
     if not path.exists():
         return None
@@ -185,16 +184,6 @@ def load_template(path: Path) -> np.ndarray | None:
     if template is None:
         raise RuntimeError(f"無法讀取模板：{path}")
     return template
-
-
-def crop_cast_template(template: np.ndarray) -> np.ndarray:
-    """Remove water and label text, keeping only the circular cast icon."""
-    height, width = template.shape[:2]
-    left = round(width * 0.25)
-    right = round(width * 0.75)
-    top = round(height * 0.12)
-    bottom = round(height * 0.65)
-    return np.ascontiguousarray(template[top:bottom, left:right])
 
 
 def image_similarity(image: np.ndarray, template: np.ndarray | None) -> float:
@@ -425,43 +414,3 @@ def locate_template(
             best = candidate
 
     return best
-
-
-def annotate(
-    frame: np.ndarray,
-    lift_region: Region,
-    bait_region: Region,
-    green: float,
-    cast_score: float,
-    empty_score: float,
-    status: str,
-) -> np.ndarray:
-    output = frame.copy()
-    for region, color in ((lift_region, (0, 255, 255)), (bait_region, (255, 180, 0))):
-        height, width = region.image.shape[:2]
-        cv2.rectangle(
-            output,
-            (region.left, region.top),
-            (region.left + width, region.top + height),
-            color,
-            2,
-        )
-    lines = (
-        f"state: {status}",
-        f"green: {green:.3f} / {cfg.GREEN_PIXEL_RATIO:.3f}",
-        f"cast: {cast_score:.3f} / {cfg.CAST_TEMPLATE_THRESHOLD:.3f}",
-        f"worm: {empty_score:.3f} / {cfg.EMPTY_BAIT_WORM_THRESHOLD:.3f}",
-        "Q quit | P pause",
-    )
-    for index, line in enumerate(lines):
-        cv2.putText(
-            output,
-            line,
-            (12, 28 + index * 27),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.65,
-            (0, 255, 0),
-            2,
-            cv2.LINE_AA,
-        )
-    return output

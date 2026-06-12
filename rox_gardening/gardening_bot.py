@@ -20,6 +20,7 @@ from window_capture import (
     capture_window,
     click_client,
     find_window,
+    find_windows,
     get_client_bounds,
     is_key_down,
     ratio_point,
@@ -69,6 +70,22 @@ def wait_for_answer_text(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="ROX Gardening Bot")
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument(
+        "--window-index",
+        type=int,
+        help="Select a ROX window by the 1-based index from --list-windows",
+    )
+    selection.add_argument(
+        "--hwnd",
+        type=int,
+        help="Select a ROX window by its Windows handle",
+    )
+    parser.add_argument(
+        "--list-windows",
+        action="store_true",
+        help="List visible ROX windows and exit",
+    )
     parser.add_argument(
         "--inspect",
         action="store_true",
@@ -265,7 +282,37 @@ def main() -> None:
     args = parse_args()
     configure_logging()
     cfg.DEBUG_DIR.mkdir(exist_ok=True)
-    hwnd, title = find_window(cfg.WINDOW_TITLE_KEYWORDS)
+    if args.list_windows:
+        matches = find_windows(cfg.WINDOW_TITLE_KEYWORDS)
+        if not matches:
+            logger.info("No visible ROX windows found.")
+            return
+        logger.info("Visible ROX windows:")
+        for index, match in enumerate(matches, start=1):
+            bounds = get_client_bounds(match.hwnd)
+            status = (
+                "ready"
+                if bounds.width > 0 and bounds.height > 0
+                else "minimized"
+            )
+            logger.info(
+                "  [%s] hwnd=%s pid=%s size=%sx%s status=%s title=%s",
+                index,
+                match.hwnd,
+                match.process_id,
+                bounds.width,
+                bounds.height,
+                status,
+                match.title,
+            )
+        return
+
+    hwnd, title = find_window(
+        cfg.WINDOW_TITLE_KEYWORDS,
+        hwnd=args.hwnd,
+        window_index=args.window_index,
+    )
+    activate_window(hwnd)
     bounds = get_client_bounds(hwnd)
     logger.info("=== ROX Gardening Bot started ===")
     logger.info("Game window: %s (handle=%s)", title, hwnd)
@@ -276,7 +323,6 @@ def main() -> None:
         inspect_frame(hwnd)
         return
 
-    activate_window(hwnd)
     garden_point = ratio_point(
         (bounds.width, bounds.height),
         cfg.GARDEN_BUTTON_POINT,

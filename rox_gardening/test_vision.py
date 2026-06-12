@@ -152,6 +152,23 @@ class VisionTests(unittest.TestCase):
         self.assertEqual(digits, "10")
         self.assertGreater(confidence, 0.4)
 
+    def test_reads_game_sized_answer_15(self) -> None:
+        frame = np.zeros((900, 1600, 3), dtype=np.uint8)
+        dialog = Rect(377, 280, 727, 406)
+        cv2.putText(
+            frame,
+            "15",
+            (786, 505),
+            cv2.FONT_HERSHEY_DUPLEX,
+            0.9,
+            (255, 255, 255),
+            2,
+            cv2.LINE_AA,
+        )
+        digits, confidence = read_answer_digits(frame, dialog)
+        self.assertEqual(digits, "15")
+        self.assertGreater(confidence, 0.4)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -6,6 +6,17 @@ import logging
 import time
 from dataclasses import dataclass
 
+# DPI awareness must be configured before importing MSS or PyAutoGUI. Some
+# screen libraries set process DPI awareness during import, which otherwise
+# locks coordinates to the primary monitor's scale.
+user32 = ctypes.windll.user32
+try:
+    per_monitor_v2 = ctypes.c_void_p(-4)
+    if not user32.SetProcessDpiAwarenessContext(per_monitor_v2):
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+except (AttributeError, OSError):
+    user32.SetProcessDPIAware()
+
 import cv2
 import mss
 import numpy as np
@@ -15,15 +26,7 @@ import config as cfg
 
 
 logger = logging.getLogger(__name__)
-user32 = ctypes.windll.user32
 gdi32 = ctypes.windll.gdi32
-
-# Keep Win32 client coordinates and PyAutoGUI screen coordinates in the same
-# physical-pixel coordinate system on displays using 125%/150% scaling.
-try:
-    ctypes.windll.shcore.SetProcessDpiAwareness(2)
-except (AttributeError, OSError):
-    user32.SetProcessDPIAware()
 
 WM_LBUTTONDOWN = 0x0201
 WM_LBUTTONUP = 0x0202
@@ -82,6 +85,15 @@ class BITMAPINFO(ctypes.Structure):
     ]
 
 
+class MONITORINFO(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", wintypes.DWORD),
+        ("rcMonitor", wintypes.RECT),
+        ("rcWork", wintypes.RECT),
+        ("dwFlags", wintypes.DWORD),
+    ]
+
+
 @dataclass(frozen=True)
 class ClientBounds:
     left: int
@@ -90,12 +102,19 @@ class ClientBounds:
     height: int
 
 
+@dataclass(frozen=True)
+class WindowInfo:
+    hwnd: int
+    title: str
+    process_id: int
+
+
 def _normalized_title(value: str) -> str:
     return value.casefold().replace("ö", "o")
 
 
-def find_window(title_keywords: tuple[str, ...]) -> tuple[int, str]:
-    matches: list[tuple[int, str]] = []
+def find_windows(title_keywords: tuple[str, ...]) -> list[WindowInfo]:
+    matches: list[WindowInfo] = []
     normalized_keywords = tuple(_normalized_title(item) for item in title_keywords)
 
     @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
@@ -110,15 +129,56 @@ def find_window(title_keywords: tuple[str, ...]) -> tuple[int, str]:
         title = buffer.value
         normalized = _normalized_title(title)
         if any(keyword in normalized for keyword in normalized_keywords):
-            matches.append((hwnd, title))
+            process_id = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(process_id))
+            matches.append(WindowInfo(hwnd, title, process_id.value))
         return True
 
     user32.EnumWindows(enum_callback, 0)
+    return sorted(matches, key=lambda item: item.hwnd)
+
+
+def select_window(
+    matches: list[WindowInfo],
+    *,
+    hwnd: int | None = None,
+    window_index: int | None = None,
+) -> WindowInfo:
     if not matches:
         raise RuntimeError(
             "找不到 ROX 遊戲視窗。請先啟動遊戲，並確認視窗標題包含 ROX。"
         )
-    return min(matches, key=lambda item: len(item[1]))
+    if hwnd is not None:
+        for match in matches:
+            if match.hwnd == hwnd:
+                return match
+        raise RuntimeError(f"找不到 ROX 視窗 handle={hwnd}。")
+    if window_index is not None:
+        if not 1 <= window_index <= len(matches):
+            raise RuntimeError(
+                f"視窗序號必須介於 1 到 {len(matches)}。"
+            )
+        return matches[window_index - 1]
+    if len(matches) > 1:
+        raise RuntimeError(
+            f"找到 {len(matches)} 個 ROX 視窗。請先使用 --list-windows，"
+            "再用 --window-index 或 --hwnd 指定角色。"
+        )
+    return matches[0]
+
+
+def find_window(
+    title_keywords: tuple[str, ...],
+    *,
+    hwnd: int | None = None,
+    window_index: int | None = None,
+) -> tuple[int, str]:
+    selected = select_window(
+        find_windows(title_keywords),
+        hwnd=hwnd,
+        window_index=window_index,
+    )
+    return selected.hwnd, selected.title
 
 
 def get_client_bounds(hwnd: int) -> ClientBounds:
@@ -134,6 +194,45 @@ def get_client_bounds(hwnd: int) -> ClientBounds:
         width=rect.right - rect.left,
         height=rect.bottom - rect.top,
     )
+
+
+def ratio_point(
+    size: tuple[int, int],
+    point: tuple[float, float],
+) -> tuple[int, int]:
+    width, height = size
+    return round(width * point[0]), round(height * point[1])
+
+
+def get_monitor_bounds(hwnd: int) -> ClientBounds:
+    user32.MonitorFromWindow.restype = wintypes.HANDLE
+    monitor = user32.MonitorFromWindow(hwnd, 2)
+    info = MONITORINFO()
+    info.cbSize = ctypes.sizeof(MONITORINFO)
+    if not user32.GetMonitorInfoW(monitor, ctypes.byref(info)):
+        raise ctypes.WinError()
+    rect = info.rcMonitor
+    return ClientBounds(
+        left=rect.left,
+        top=rect.top,
+        width=rect.right - rect.left,
+        height=rect.bottom - rect.top,
+    )
+
+
+def is_key_down(virtual_key: int) -> bool:
+    return bool(user32.GetAsyncKeyState(virtual_key) & 0x8000)
+
+
+def is_window_foreground(hwnd: int) -> bool:
+    return user32.GetForegroundWindow() == hwnd
+
+
+def activate_window(hwnd: int) -> None:
+    if user32.IsIconic(hwnd):
+        user32.ShowWindow(hwnd, 9)
+    user32.SetForegroundWindow(hwnd)
+    time.sleep(cfg.FOREGROUND_SETTLE_SECONDS)
 
 
 def capture_screen(hwnd: int) -> np.ndarray:

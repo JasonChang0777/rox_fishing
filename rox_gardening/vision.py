@@ -340,9 +340,12 @@ def read_answer_digits(frame: np.ndarray, dialog: Rect) -> tuple[str, float]:
     image = np.ascontiguousarray(frame[top:bottom, left:right])
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     mask = cv2.inRange(gray, 210, 255)
+    # The game's anti-aliased answer digits can contain one-pixel gaps.
+    # Closing preserves and reconnects those strokes; opening split the "5"
+    # in answers such as "15" into fragments that were filtered out below.
     mask = cv2.morphologyEx(
         mask,
-        cv2.MORPH_OPEN,
+        cv2.MORPH_CLOSE,
         np.ones((2, 2), dtype=np.uint8),
     )
     contours, _ = cv2.findContours(

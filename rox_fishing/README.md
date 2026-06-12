@@ -1,17 +1,15 @@
 # ROX Fishing Bot
 
-Windows PC 版 ROX 釣魚畫面辨識工具。它會：
+Windows PC 版 ROX 自動釣魚工具。程式會：
 
-1. 找到標題含 `ROX` 或 `RÖX` 的遊戲視窗。
-2. 偵測拋竿按鈕並開始釣魚。
-3. 在提竿圓圈變綠時快速點擊三次。
-4. 等待完成後繼續下一次。
-5. 偵測基本魚餌用完的圖示並停止。
-
-每一輪的順序是：
+1. 找到標題含 `ROX` 或 `RÖX` 的遊戲視窗並切到前景。
+2. 確認目前使用有限魚餌後，點擊固定比例的拋竿按鈕。
+3. 偵測提竿按鈕變綠並快速點擊三次。
+4. 等待釣魚結果，再開始下一輪。
+5. 有限魚餌用完、畫面切回無限初始魚餌時自動停止。
 
 ```text
-檢查有限魚餌 → 拋竿 → 等待綠圈 → 收竿 → 再檢查魚餌
+檢查有限魚餌 -> 拋竿 -> 等待上鉤 -> 收竿 -> 等待結果 -> 再檢查魚餌
 ```
 
 ## 安裝
@@ -22,95 +20,144 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-## 校準拋竿位置
-
-先讓遊戲顯示可以拋竿的按鈕，再執行：
-
-```powershell
-cd D:\ai-agent-project\ROX\rox_fishing
-..\.venv\Scripts\python.exe calibrate.py point --delay 5
-```
-
-倒數期間把滑鼠移到拋竿按鈕正中央，保持不動。程式會把位置儲存成遊戲
-視窗內的比例座標，因此移動視窗不需要重新校準。
-
-校準後請檢查 `debug/cast_point.png`，紅黃標記必須落在釣魚按鈕正中央。
-
-接著單獨測試點擊：
-
-```powershell
-..\.venv\Scripts\python.exe test_click.py
-```
-
-三秒內切回遊戲。滑鼠應移到拋竿按鈕並完成一次點擊。若滑鼠有移動但遊戲
-沒有反應，請關閉 ROX 的系統管理員模式，或用系統管理員權限啟動 PowerShell
-和 VS Code，使兩者權限相同。
-
-也可以測試不移動滑鼠、不切換視窗的背景 `PostMessage`：
-
-```powershell
-..\.venv\Scripts\python.exe test_background_click.py
-```
-
-如果 ROX 與 VS Code 使用相同的系統管理員權限後這個測試有效，可將
-`config.py` 的 `CLICK_MODE` 改為 `"background"`。
-
-## 校準魚餌模板
-
-接著讓遊戲顯示「基本魚餌用完」的第四張圖：
-
-```powershell
-..\.venv\Scripts\python.exe calibrate.py empty
-```
-
-模板會存到 `templates`。請檢查圖片是否包含正確 UI。
-
 ## 執行
+
+只有一個 ROX 視窗時：
 
 ```powershell
 cd D:\ai-agent-project\ROX
 .\.venv\Scripts\python.exe .\rox_fishing\fishing_bot.py
 ```
 
-由於程式使用螢幕擷取，預設不顯示 OpenCV 預覽窗，以免遮住遊戲。請在終端機
-按 `Ctrl+C` 結束。
+有多個 ROX 視窗時，先執行 `--list-windows`，再指定序號或 HWND：
 
-## 待辦功能
+```powershell
+.\.venv\Scripts\python.exe .\rox_fishing\fishing_bot.py --list-windows
+.\.venv\Scripts\python.exe .\rox_fishing\fishing_bot.py --window-index 2
+.\.venv\Scripts\python.exe .\rox_fishing\fishing_bot.py --hwnd 8585488
+```
 
-- **選填釣魚次數參數**
-  - 未指定時維持目前行為，持續釣魚直到魚餌用完或手動停止。
-  - 可指定預計完成的釣魚輪數，例如 `python fishing_bot.py --count 20`。
-  - 完成指定輪數後記錄統計並正常結束。
+- 按 `Q` 可隨時停止。
+- 終端機內也可按 `Ctrl+C` 停止。
+- Log 位於 `rox_fishing\logs\fishing_bot.log`。
 
-- **狀態逾時保護**
-  - 為 `CHECKING_BAIT`、`CASTING`、`WAITING_FOR_BITE` 和
-    `WAITING_FOR_RESULT` 設定可調整的最長停留時間。
-  - 同一狀態停留過久時，視為辨識或操作失敗。
-  - 結束前記錄卡住的狀態、持續時間、最後辨識分數，並保存偵錯截圖。
+程式使用螢幕擷取，因此 ROX 必須保持可見且位於前景。切到其他視窗時會暫停
+辨識，回到 ROX 後自動繼續。
 
-## 背景操作限制
+## 多開 ROX
 
-預設使用：
+先列出目前可見的 ROX 視窗：
 
-- `CAPTURE_MODE = "screen"`：直接擷取螢幕上的遊戲範圍。
-- `CLICK_MODE = "sendinput"`：使用 Windows 實體輸入，這是目前實測最穩定的
-  模式。
+```powershell
+cd D:\ai-agent-project\ROX
+.\.venv\Scripts\python.exe .\rox_fishing\fishing_bot.py --list-windows
+```
 
-ROX 的 DirectX 畫面通常不支援 `PrintWindow`，因此遊戲畫面必須保持可見，
-不能被其他視窗遮住或最小化。背景點擊仍可運作，但背景畫面辨識通常不可行。
+輸出會包含視窗序號、handle、process ID 與客戶區大小。再用序號或 handle
+指定要控制的角色：
 
-ROX 在非前景狀態會忽略純 `PostMessage`，所以背景模式不可靠。`SendInput`
-會短暫移動並使用滑鼠。畫面辨識使用螢幕擷取，因此遊戲不能最小化或被其他
-視窗完全遮住。
+```powershell
+.\.venv\Scripts\python.exe .\rox_fishing\fishing_bot.py --window-index 2
+.\.venv\Scripts\python.exe .\rox_fishing\fishing_bot.py --hwnd 1508906
+```
 
-## 調整辨識
+偵測到多個 ROX 視窗但未指定時，Bot 會拒絕啟動，避免點錯角色。
 
-終端機會顯示辨識數值：
+目前使用前景螢幕擷取與 `SendInput`，不建議同時執行多個釣魚 Bot。多個程序
+會互相切換前景視窗，導致截圖與點擊落在不同角色。正確用法是一次執行一個
+Bot，透過上述參數選擇本次要控制的視窗。
 
-- `green`：提竿按鈕中央的綠色比例。
-- `empty`：目前魚餌圖示與用完模板的相似度。
+## 拋竿位置
 
-發生誤判時，依預覽數值調整 `config.py` 內對應的 threshold。門檻越高越保守。
+拋竿按鈕使用 `config.py` 的固定比例座標：
 
-拋竿不再辨識透明按鈕，而是使用手動校準的比例座標。上鉤則動態搜尋高飽和
-綠色圓圈，因此更換水面視角不會影響拋竿位置。
+```python
+CAST_BUTTON_POINT = (0.84921875, 0.7333333333333333)
+```
+
+程式會依 ROX 客戶區等比例換算：
+
+- `1280x720`：約 `(1087, 528)`
+- `1600x900`：約 `(1359, 660)`
+
+Bot 只使用這個固定比例座標，不需要額外校準。若遊戲 UI 改版導致位置偏移，
+直接修改 `CAST_BUTTON_POINT`。
+
+## 魚餌模板
+
+`templates\empty_bait.png` 是專案內建資源，用來辨識有限魚餌用完後出現的
+無限初始魚餌。使用者不需要執行任何校正或產生模板。
+
+## 雙螢幕與 DPI
+
+程式使用 Per-Monitor DPI V2 與實體像素座標，可支援不同解析度或縮放比例的
+雙螢幕。啟動 Log 會記錄：
+
+```text
+Client bounds: left=... top=... size=...
+Monitor bounds: left=... top=... size=...
+```
+
+例如遊戲設定為 `1280x720`，在 125% 縮放的 2K 螢幕上，實際擷取區可能是
+`1600x900`。這是正常的 DPI 換算，固定比例座標會一起縮放。
+
+## 擷取與點擊
+
+預設設定：
+
+- `CAPTURE_MODE = "screen"`：擷取螢幕上實際可見的 ROX 客戶區。
+- `CLICK_MODE = "sendinput"`：使用 Windows 實體滑鼠輸入。
+- `SHOW_PREVIEW = False`：不顯示 OpenCV 視窗，避免遮住遊戲。
+- `SAVE_DEBUG_FRAMES = True`：保存辨識用偵錯圖。
+
+ROX 的 DirectX 畫面通常無法透過 `PrintWindow` 正常取得，因此遊戲不可被
+其他視窗遮住或最小化。純 `PostMessage` 背景點擊也可能被 ROX 忽略，
+`sendinput` 是目前較可靠的模式。
+
+ROX 與 Bot 必須使用相同權限。如果 ROX 以系統管理員執行，啟動 Bot 的
+PowerShell 或 VS Code 也必須使用系統管理員權限。
+
+## 偵錯圖片
+
+偵錯圖片位於 `rox_fishing\debug`：
+
+- `bite_latest.png`：等待上鉤時每秒更新的最新偵測區域。
+- `bite_baseline.png`：拋竿後建立的固定比較基準，不會持續更新。
+- `green_peak.png`：本輪最高上鉤變化分數的畫面。
+- `bait_panel_target.png`：目前找到的魚餌區域。
+- `out_of_bait.png`：判定有限魚餌用完時的魚餌圖。
+
+查看偵錯圖片前建議先按 `Q` 停止 Bot。執行中切到 IDE 時，程式會暫停螢幕
+辨識，避免把 IDE 畫面當成遊戲畫面。
+
+## 辨識數值
+
+Log 主要顯示：
+
+- `worm`：目前魚餌圖與無限初始魚餌外形的相似度。
+- `infinity`：無限符號的相似度。
+- `bait`：`limited`、`starter` 或 `unknown`。
+- `bite`：目前提竿區域相對基準圖新增的亮綠色比例。
+- `green`：提竿區域本身的綠色比例，主要供診斷參考。
+
+`unknown` 不會觸發拋竿，避免在魚餌畫面不清楚時誤操作。相關門檻位於
+`config.py`。
+
+## 測試
+
+```powershell
+cd D:\ai-agent-project\ROX
+.\.venv\Scripts\python.exe -m unittest discover -s .\rox_fishing -p "test_*.py"
+```
+
+單獨測試滑鼠點擊：
+
+```powershell
+cd D:\ai-agent-project\ROX\rox_fishing
+..\.venv\Scripts\python.exe test_click.py
+```
+
+## 待辦
+
+- 支援 `--count` 指定預計完成的釣魚輪數。
+- 為各狀態加入最長停留時間與逾時偵錯截圖。

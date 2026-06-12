@@ -6,15 +6,18 @@ TEMPLATE_DIR = PROJECT_DIR / "templates"
 DEBUG_DIR = PROJECT_DIR / "debug"
 LOG_DIR = PROJECT_DIR / "logs"
 LOG_FILE = LOG_DIR / "fishing_bot.log"
-CAST_POINT_FILE = PROJECT_DIR / "cast_point.json"
 
 # The game title may use either a plain O or an umlaut depending on the client.
 WINDOW_TITLE_KEYWORDS = ("ROX", "RÖX")
 
+# Fixed fishing button center as a ratio of the ROX client area.
+CAST_BUTTON_POINT = (0.84921875, 0.7333333333333333)
+
+# Global stop hotkey. Q works while the game window is focused.
+STOP_KEY_NAME = "Q"
+STOP_VIRTUAL_KEY = 0x51
+
 # Regions are (left, top, right, bottom) ratios of the game client area.
-# The fishing button moves when the game changes its UI layout, so search a
-# broad lower-right area instead of clicking the center of a fixed ROI.
-LIFT_BUTTON_ROI = (0.42, 0.42, 1.00, 1.00)
 BAIT_ICON_ROI = (0.65, 0.84, 0.75, 0.99)
 BAIT_PANEL_SEARCH_ROI = (0.40, 0.65, 0.95, 1.00)
 BAIT_PANEL_TEMPLATE_SCALES = (
@@ -52,7 +55,7 @@ EMPTY_BAIT_WORM_THRESHOLD = 0.52
 EMPTY_BAIT_INFINITY_THRESHOLD = 0.72
 # Limited bait must be clearly different from both starter-bait features.
 # Scores between these bands are unknown and must never trigger a cast.
-LIMITED_BAIT_WORM_MAX = 0.52
+LIMITED_BAIT_WORM_MAX = 0.65
 LIMITED_BAIT_INFINITY_MAX = 0.55
 EMPTY_BAIT_REQUIRED_FRAMES = 5
 BAIT_PRESENT_REQUIRED_FRAMES = 5
@@ -65,6 +68,7 @@ EMPTY_BAIT_INFINITY_CROP = (0.62, 0.62, 1.00, 0.96)
 POLL_INTERVAL_SECONDS = 0.010
 DIAGNOSTIC_INTERVAL_SECONDS = 1.0
 CAST_COOLDOWN_SECONDS = 2.0
+BITE_BASELINE_DELAY_SECONDS = 1.0
 LIFT_COOLDOWN_SECONDS = 1.5
 RESULT_WAIT_SECONDS = 4.0
 

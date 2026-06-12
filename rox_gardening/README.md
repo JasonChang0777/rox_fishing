@@ -55,6 +55,24 @@ cd D:\ai-agent-project\ROX
 - 終端內也可按 `Ctrl+C` 停止
 - 日誌位於 `logs\gardening_bot.log`
 
+## 多開 ROX
+
+先列出目前可見的 ROX 視窗：
+
+```powershell
+.\.venv\Scripts\python.exe .\rox_gardening\gardening_bot.py --list-windows
+```
+
+再用清單序號或視窗 handle 指定要控制的角色：
+
+```powershell
+.\.venv\Scripts\python.exe .\rox_gardening\gardening_bot.py --window-index 2
+.\.venv\Scripts\python.exe .\rox_gardening\gardening_bot.py --hwnd 1508906
+```
+
+偵測到多個 ROX 視窗但未指定時，程式會拒絕啟動，避免點錯角色。
+目前點擊使用前景 `SendInput`，不建議同時執行多個 bot 程序，否則視窗會互相搶焦點。
+
 ## 驗證保護
 
 程式支援 `+`、`-`、`*` 題型。偵測到驗證視窗後：
