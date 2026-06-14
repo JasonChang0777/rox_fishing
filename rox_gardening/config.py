@@ -14,7 +14,10 @@ WINDOW_TITLE_KEYWORDS = ("ROX", "RÖX")
 # below are ratios, so small window-size differences remain supported.
 REFERENCE_SIZE = (1280, 720)
 CAPTURE_MODE = "screen"
+# ROX ignores PostMessage background clicks, so physical SendInput is required.
+# Restore the cursor immediately after each click to minimize interruption.
 CLICK_MODE = "sendinput"
+RESTORE_CURSOR_AFTER_CLICK = True
 
 # Global stop hotkey. Q works while the game window is focused.
 STOP_KEY_NAME = "Q"
@@ -39,7 +42,8 @@ VERIFY_DIALOG_MAX_ASPECT = 2.20
 VERIFY_INPUT_POINT = (0.50, 0.53)
 VERIFY_CONFIRM_POINT = (0.50, 0.85)
 VERIFY_ANSWER_ROI = (0.50, 0.48, 0.66, 0.60)
-KEYPAD_COLUMN_RATIOS = (0.90, 1.05, 1.20, 1.35)
+# Calibrated from the visible in-game keypad at a 1280x720 client size.
+KEYPAD_COLUMN_RATIOS = (0.912, 1.036, 1.160, 1.286)
 KEYPAD_ROW_RATIOS = (0.55, 0.78, 1.01)
 KEYPAD_LAYOUT = (
     ("1", "2", "3", "clear"),
@@ -61,6 +65,7 @@ DIAGNOSTIC_INTERVAL_SECONDS = 2.0
 EQUATION_MIN_CONFIDENCE = 0.42
 SAVE_DEBUG_FRAMES = True
 
-FOREGROUND_SETTLE_SECONDS = 0.05
-MOUSE_MOVE_SETTLE_SECONDS = 0.01
-MOUSE_PRESS_SECONDS = 0.03
+FOREGROUND_SETTLE_SECONDS = 0.10
+MOUSE_MOVE_SETTLE_SECONDS = 0.05
+MOUSE_PRESS_SECONDS = 0.12
+MOUSE_RELEASE_SETTLE_SECONDS = 0.10

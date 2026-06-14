@@ -22,7 +22,26 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
+## 分享給其他人
+
+不能只傳送 `.bat` 檔。啟動器需要本專案的 Python 程式、辨識模板及套件。
+請讓使用者下載完整 `ROX` 資料夾，並在自己的電腦執行：
+
+```powershell
+cd ROX
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+完成後雙擊 `啟動ROX Bot.bat`。若要提供不必安裝 Python 的版本，需要另外
+製作包含程式與模板的 Windows 執行檔發行包。
+
 ## 執行
+
+### GUI 啟動器
+
+雙擊 `啟動ROX Bot.bat`，選擇 ROX 遊戲視窗後，可啟動園藝或釣魚 Bot。
+清單只會顯示標題為 `ROX` 或 `RöX` 的遊戲視窗。
 
 ### 釣魚
 

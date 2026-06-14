@@ -400,6 +400,9 @@ def click_client(
 
     if mode == "sendinput":
         bounds = get_client_bounds(hwnd)
+        previous_foreground = user32.GetForegroundWindow()
+        previous_cursor = wintypes.POINT()
+        cursor_saved = bool(user32.GetCursorPos(ctypes.byref(previous_cursor)))
         if user32.IsIconic(hwnd):
             user32.ShowWindow(hwnd, 9)
         user32.SetForegroundWindow(hwnd)
@@ -436,13 +439,35 @@ def click_client(
             f"SendInput click: client=({x}, {y}) "
             f"screen=({screen_x}, {screen_y}) count={count}"
         )
-        send(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK)
-        time.sleep(cfg.MOUSE_MOVE_SETTLE_SECONDS)
-        for _ in range(count):
-            send(MOUSEEVENTF_LEFTDOWN | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK)
-            time.sleep(cfg.MOUSE_PRESS_SECONDS)
-            send(MOUSEEVENTF_LEFTUP | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK)
-            time.sleep(interval)
+        try:
+            send(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK)
+            time.sleep(cfg.MOUSE_MOVE_SETTLE_SECONDS)
+            for _ in range(count):
+                send(
+                    MOUSEEVENTF_LEFTDOWN
+                    | MOUSEEVENTF_ABSOLUTE
+                    | MOUSEEVENTF_VIRTUALDESK
+                )
+                try:
+                    time.sleep(cfg.MOUSE_PRESS_SECONDS)
+                finally:
+                    send(
+                        MOUSEEVENTF_LEFTUP
+                        | MOUSEEVENTF_ABSOLUTE
+                        | MOUSEEVENTF_VIRTUALDESK
+                    )
+                    time.sleep(cfg.MOUSE_RELEASE_SETTLE_SECONDS)
+                time.sleep(interval)
+        finally:
+            if cfg.RESTORE_CURSOR_AFTER_CLICK and cursor_saved:
+                user32.SetCursorPos(previous_cursor.x, previous_cursor.y)
+            if (
+                cfg.RESTORE_FOREGROUND_AFTER_CLICK
+                and previous_foreground
+                and previous_foreground != hwnd
+                and user32.IsWindow(previous_foreground)
+            ):
+                user32.SetForegroundWindow(previous_foreground)
         return
 
     raise ValueError(f"未知的 CLICK_MODE: {mode}")

@@ -74,13 +74,18 @@ RESULT_WAIT_SECONDS = 4.0
 
 LIFT_CLICK_COUNT = 3
 CLICK_INTERVAL_SECONDS = 0.010
-FOREGROUND_SETTLE_SECONDS = 0.020
-MOUSE_MOVE_SETTLE_SECONDS = 0.010
-MOUSE_PRESS_SECONDS = 0.020
+FOREGROUND_SETTLE_SECONDS = 0.100
+MOUSE_MOVE_SETTLE_SECONDS = 0.050
+MOUSE_PRESS_SECONDS = 0.120
+MOUSE_RELEASE_SETTLE_SECONDS = 0.100
 
 # Reliable mode: use Windows SendInput. This briefly uses the real cursor and
 # requires ROX and this process to run at the same privilege level.
 CLICK_MODE = "sendinput"
+RESTORE_CURSOR_AFTER_CLICK = True
+# Screen capture requires ROX to stay in the foreground. Enable this only
+# with a capture mode that can keep reading an occluded game window.
+RESTORE_FOREGROUND_AFTER_CLICK = False
 FOCUS_MESSAGE_SETTLE_SECONDS = 0.050
 
 # ROX uses DirectX and commonly returns a black frame through PrintWindow.

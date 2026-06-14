@@ -23,6 +23,7 @@ from window_capture import (
     find_windows,
     get_client_bounds,
     is_key_down,
+    release_mouse_buttons,
     ratio_point,
 )
 
@@ -312,7 +313,8 @@ def main() -> None:
         hwnd=args.hwnd,
         window_index=args.window_index,
     )
-    activate_window(hwnd)
+    if cfg.CLICK_MODE == "sendinput":
+        activate_window(hwnd)
     bounds = get_client_bounds(hwnd)
     logger.info("=== ROX Gardening Bot started ===")
     logger.info("Game window: %s (handle=%s)", title, hwnd)
@@ -386,6 +388,8 @@ def main() -> None:
             interruptible_sleep(cfg.POLL_INTERVAL_SECONDS)
     except (KeyboardInterrupt, StopRequested):
         logger.info("Stopped by user.")
+    finally:
+        release_mouse_buttons()
 
 
 if __name__ == "__main__":

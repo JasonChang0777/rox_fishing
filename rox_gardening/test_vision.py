@@ -43,9 +43,9 @@ class VisionTests(unittest.TestCase):
 
     def test_keypad_point_uses_dialog_relative_layout(self) -> None:
         dialog = Rect(100, 80, 600, 400)
-        self.assertEqual(keypad_point(dialog, "1"), (640, 300))
-        self.assertEqual(keypad_point(dialog, "0"), (910, 392))
-        self.assertEqual(keypad_point(dialog, "enter"), (910, 484))
+        self.assertEqual(keypad_point(dialog, "1"), (647, 300))
+        self.assertEqual(keypad_point(dialog, "0"), (872, 392))
+        self.assertEqual(keypad_point(dialog, "enter"), (872, 484))
 
     def test_reads_synthetic_addition(self) -> None:
         frame = np.full((720, 1280, 3), 230, dtype=np.uint8)

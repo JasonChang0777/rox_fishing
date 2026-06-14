@@ -107,12 +107,20 @@ Monitor bounds: left=... top=... size=...
 
 - `CAPTURE_MODE = "screen"`：擷取螢幕上實際可見的 ROX 客戶區。
 - `CLICK_MODE = "sendinput"`：使用 Windows 實體滑鼠輸入。
+- `RESTORE_CURSOR_AFTER_CLICK = True`：點擊後把滑鼠移回原本位置。
+- `RESTORE_FOREGROUND_AFTER_CLICK = False`：保持 ROX 在前景，避免螢幕擷取暫停。
 - `SHOW_PREVIEW = False`：不顯示 OpenCV 視窗，避免遮住遊戲。
 - `SAVE_DEBUG_FRAMES = True`：保存辨識用偵錯圖。
 
 ROX 的 DirectX 畫面通常無法透過 `PrintWindow` 正常取得，因此遊戲不可被
 其他視窗遮住或最小化。純 `PostMessage` 背景點擊也可能被 ROX 忽略，
-`sendinput` 是目前較可靠的模式。
+`sendinput` 是目前較可靠的模式。ROX 點擊期間會短暫占用滑鼠，完成後 Bot
+會還原游標位置。使用 `screen` 擷取時，ROX 必須保持在前景；若將
+`RESTORE_FOREGROUND_AFTER_CLICK` 設為 `True`，切回其他視窗後偵測會暫停。
+
+點擊時序使用園藝 Bot 已驗證的設定：切到前景後等待 `100ms`、游標移動後
+等待 `50ms`、左鍵按住 `120ms`，放開後再停留 `100ms` 才還原游標。
+即使點擊途中被中斷，程式也會先送出左鍵放開事件。
 
 ROX 與 Bot 必須使用相同權限。如果 ROX 以系統管理員執行，啟動 Bot 的
 PowerShell 或 VS Code 也必須使用系統管理員權限。

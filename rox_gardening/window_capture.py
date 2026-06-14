@@ -14,6 +14,7 @@ import config as cfg
 
 logger = logging.getLogger(__name__)
 user32 = ctypes.windll.user32
+kernel32 = ctypes.windll.kernel32
 
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(2)
@@ -26,8 +27,9 @@ MOUSEEVENTF_LEFTDOWN = 0x0002
 MOUSEEVENTF_LEFTUP = 0x0004
 MOUSEEVENTF_ABSOLUTE = 0x8000
 MOUSEEVENTF_VIRTUALDESK = 0x4000
-VK_MENU = 0x12
-KEYEVENTF_KEYUP = 0x0002
+WM_LBUTTONDOWN = 0x0201
+WM_LBUTTONUP = 0x0202
+MK_LBUTTON = 0x0001
 
 
 class MOUSEINPUT(ctypes.Structure):
@@ -155,15 +157,38 @@ def activate_window(hwnd: int) -> None:
     if user32.IsIconic(hwnd):
         user32.ShowWindow(hwnd, 9)
     if user32.GetForegroundWindow() != hwnd:
-        # Windows normally blocks background processes from stealing focus.
-        # Tapping Alt temporarily permits SetForegroundWindow without clicking.
-        user32.keybd_event(VK_MENU, 0, 0, 0)
+        foreground = user32.GetForegroundWindow()
+        current_thread = kernel32.GetCurrentThreadId()
+        foreground_thread = (
+            user32.GetWindowThreadProcessId(foreground, None)
+            if foreground
+            else 0
+        )
+        attached = bool(
+            foreground_thread
+            and foreground_thread != current_thread
+            and user32.AttachThreadInput(
+                current_thread,
+                foreground_thread,
+                True,
+            )
+        )
         try:
             user32.BringWindowToTop(hwnd)
             user32.SetForegroundWindow(hwnd)
         finally:
-            user32.keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0)
+            if attached:
+                user32.AttachThreadInput(
+                    current_thread,
+                    foreground_thread,
+                    False,
+                )
     time.sleep(cfg.FOREGROUND_SETTLE_SECONDS)
+    if user32.GetForegroundWindow() != hwnd:
+        raise RuntimeError(
+            "Unable to activate the selected ROX window. Run the launcher "
+            "as administrator when the game is elevated."
+        )
 
 
 def is_key_down(virtual_key: int) -> bool:
@@ -196,11 +221,66 @@ def ratio_point(
     return round(width * point[0]), round(height * point[1])
 
 
+def _send_mouse_input(
+    flags: int,
+    *,
+    absolute_x: int = 0,
+    absolute_y: int = 0,
+) -> None:
+    item = INPUT(
+        type=INPUT_MOUSE,
+        union=INPUTUNION(
+            mi=MOUSEINPUT(
+                dx=absolute_x,
+                dy=absolute_y,
+                mouseData=0,
+                dwFlags=flags,
+                time=0,
+                dwExtraInfo=None,
+            )
+        ),
+    )
+    sent = user32.SendInput(1, ctypes.byref(item), ctypes.sizeof(INPUT))
+    if sent != 1:
+        raise ctypes.WinError()
+
+
+def release_mouse_buttons() -> None:
+    _send_mouse_input(MOUSEEVENTF_LEFTUP)
+
+
 def click_client(hwnd: int, point: tuple[int, int], mode: str) -> None:
+    if mode == "background":
+        x, y = point
+        packed = (y << 16) | (x & 0xFFFF)
+        logger.info("Background click: client=(%s, %s)", x, y)
+        down_sent = user32.PostMessageW(
+            hwnd,
+            WM_LBUTTONDOWN,
+            MK_LBUTTON,
+            packed,
+        )
+        if not down_sent:
+            raise ctypes.WinError()
+        try:
+            time.sleep(cfg.MOUSE_PRESS_SECONDS)
+        finally:
+            up_sent = user32.PostMessageW(
+                hwnd,
+                WM_LBUTTONUP,
+                0,
+                packed,
+            )
+            if not up_sent:
+                raise ctypes.WinError()
+        return
+
     if mode != "sendinput":
         raise ValueError(f"不支援的 CLICK_MODE: {mode}")
 
     bounds = get_client_bounds(hwnd)
+    previous_cursor = wintypes.POINT()
+    cursor_saved = bool(user32.GetCursorPos(ctypes.byref(previous_cursor)))
     activate_window(hwnd)
 
     screen_x = bounds.left + point[0]
@@ -216,27 +296,32 @@ def click_client(hwnd: int, point: tuple[int, int], mode: str) -> None:
         (screen_y - virtual_top) * 65535 / max(1, virtual_height - 1)
     )
 
-    def send(flags: int) -> None:
-        item = INPUT(
-            type=INPUT_MOUSE,
-            union=INPUTUNION(
-                mi=MOUSEINPUT(
-                    dx=absolute_x,
-                    dy=absolute_y,
-                    mouseData=0,
-                    dwFlags=flags,
-                    time=0,
-                    dwExtraInfo=None,
-                )
-            ),
+    try:
+        logger.info("點擊 client=(%s, %s)", point[0], point[1])
+        _send_mouse_input(
+            MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
+            absolute_x=absolute_x,
+            absolute_y=absolute_y,
         )
-        sent = user32.SendInput(1, ctypes.byref(item), ctypes.sizeof(INPUT))
-        if sent != 1:
-            raise ctypes.WinError()
-
-    logger.info("點擊 client=(%s, %s)", point[0], point[1])
-    send(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK)
-    time.sleep(cfg.MOUSE_MOVE_SETTLE_SECONDS)
-    send(MOUSEEVENTF_LEFTDOWN | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK)
-    time.sleep(cfg.MOUSE_PRESS_SECONDS)
-    send(MOUSEEVENTF_LEFTUP | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK)
+        time.sleep(cfg.MOUSE_MOVE_SETTLE_SECONDS)
+        _send_mouse_input(
+            MOUSEEVENTF_LEFTDOWN
+            | MOUSEEVENTF_ABSOLUTE
+            | MOUSEEVENTF_VIRTUALDESK,
+            absolute_x=absolute_x,
+            absolute_y=absolute_y,
+        )
+        try:
+            time.sleep(cfg.MOUSE_PRESS_SECONDS)
+        finally:
+            _send_mouse_input(
+                MOUSEEVENTF_LEFTUP
+                | MOUSEEVENTF_ABSOLUTE
+                | MOUSEEVENTF_VIRTUALDESK,
+                absolute_x=absolute_x,
+                absolute_y=absolute_y,
+            )
+            time.sleep(cfg.MOUSE_RELEASE_SETTLE_SECONDS)
+    finally:
+        if cfg.RESTORE_CURSOR_AFTER_CLICK and cursor_saved:
+            user32.SetCursorPos(previous_cursor.x, previous_cursor.y)
